@@ -186,7 +186,7 @@ class KindleScraper:
 
         return book
 
-    async def scrape_all_books(self, specific_asin: Optional[str] = None) -> List[Book]:
+    async def scrape_all_books(self, specific_asin: Optional[str] = None, output_path: str = "highlights.json", resume: bool = True) -> List[Book]:
         """Scrape highlights from all books or a specific book."""
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
@@ -216,51 +216,119 @@ class KindleScraper:
                     book = await self.scrape_book_highlights(page, specific_asin)
                     if book:
                         books.append(book)
+                        self.save_book_progressively(book, output_path)
                 else:
+                    # Load existing data to check for already processed books
+                    existing_data = self.load_existing_data(output_path) if resume else {"books": []}
+                    existing_asins = self.get_existing_book_asins(existing_data)
+
                     # Get all books and scrape each one
                     book_list = await self.get_book_list(page)
+                    total_books = len(book_list)
+                    processed_count = 0
 
                     for book_info in book_list:
-                        book = await self.scrape_book_highlights(
-                            page, book_info["asin"]
-                        )
+                        asin = book_info["asin"]
+
+                        # Skip if already processed and resume is enabled
+                        if resume and asin in existing_asins:
+                            print(f"Skipping already processed book {asin}")
+                            processed_count += 1
+                            continue
+
+                        book = await self.scrape_book_highlights(page, asin)
                         if book:
                             books.append(book)
+                            # Save immediately after processing each book
+                            self.save_book_progressively(book, output_path)
+
+                        processed_count += 1
+                        print(f"Progress: {processed_count}/{total_books} books processed")
 
                 return books
 
             finally:
                 await browser.close()
 
+    def load_existing_data(self, output_path: str) -> dict:
+        """Load existing highlights data from JSON file."""
+        if not Path(output_path).exists():
+            return {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
+
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load existing file {output_path}: {e}")
+            return {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
+
+    def get_existing_book_asins(self, data: dict) -> set:
+        """Get set of ASINs that already exist in the data."""
+        return {book["asin"] for book in data.get("books", [])}
+
+    def book_to_dict(self, book: Book) -> dict:
+        """Convert a Book object to dictionary format."""
+        book_data = {
+            "asin": book.asin,
+            "title": book.title,
+            "author": book.author,
+            "cover_url": book.cover_url,
+            "highlights": [],
+        }
+
+        for highlight in book.highlights:
+            highlight_data = {
+                "id": highlight.id,
+                "color": highlight.color,
+                "text": highlight.text,
+            }
+
+            if highlight.page is not None:
+                highlight_data["page"] = highlight.page
+            if highlight.location is not None:
+                highlight_data["location"] = highlight.location
+            if highlight.note:
+                highlight_data["note"] = highlight.note
+
+            book_data["highlights"].append(highlight_data)
+
+        return book_data
+
+    def save_book_progressively(self, book: Book, output_path: str):
+        """Save a single book to the JSON file progressively."""
+        # Load existing data
+        data = self.load_existing_data(output_path)
+
+        # Check if book already exists and update or add
+        existing_asins = {b["asin"] for b in data["books"]}
+        book_dict = self.book_to_dict(book)
+
+        if book.asin in existing_asins:
+            # Update existing book
+            for i, existing_book in enumerate(data["books"]):
+                if existing_book["asin"] == book.asin:
+                    data["books"][i] = book_dict
+                    break
+            print(f"Updated book '{book.title}' with {len(book.highlights)} highlights")
+        else:
+            # Add new book
+            data["books"].append(book_dict)
+            print(f"Added book '{book.title}' with {len(book.highlights)} highlights")
+
+        # Update timestamp
+        data["run"]["timestamp"] = datetime.now().isoformat() + "Z"
+
+        # Save to file
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
     def export_to_json(self, books: List[Book], output_path: str):
-        """Export scraped books to JSON file."""
+        """Export scraped books to JSON file (batch mode - kept for compatibility)."""
         data = {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
 
         for book in books:
-            book_data = {
-                "asin": book.asin,
-                "title": book.title,
-                "author": book.author,
-                "cover_url": book.cover_url,
-                "highlights": [],
-            }
-
-            for highlight in book.highlights:
-                highlight_data = {
-                    "id": highlight.id,
-                    "color": highlight.color,
-                    "text": highlight.text,
-                }
-
-                if highlight.page is not None:
-                    highlight_data["page"] = highlight.page
-                if highlight.location is not None:
-                    highlight_data["location"] = highlight.location
-                if highlight.note:
-                    highlight_data["note"] = highlight.note
-
-                book_data["highlights"].append(highlight_data)
-
+            book_data = self.book_to_dict(book)
             data["books"].append(book_data)
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -271,10 +339,14 @@ class KindleScraper:
 
 
 async def scrape_kindle_highlights(
-    output_path: str, asin: Optional[str] = None, headless: bool = True
+    output_path: str, asin: Optional[str] = None, headless: bool = True, resume: bool = True
 ):
     """Main function to scrape Kindle highlights."""
     scraper = KindleScraper(headless=headless)
-    books = await scraper.scrape_all_books(specific_asin=asin)
-    scraper.export_to_json(books, output_path)
+    books = await scraper.scrape_all_books(specific_asin=asin, output_path=output_path, resume=resume)
+
+    # Only export at the end if we got any new books and we're not using progressive saving
+    if not resume and books:
+        scraper.export_to_json(books, output_path)
+
     return books
