@@ -4,6 +4,8 @@ A Python 3.12 tool to scrape all Kindle highlights from Amazon's notebook page a
 
 Page: https://read.amazon.com/kp/notebook
 
+Note: you'll need to delete Amazon passkey if you have it.
+
 ## Features
 
 - Scrapes all highlighted text from your Kindle library
@@ -24,16 +26,19 @@ Page: https://read.amazon.com/kp/notebook
 
 1. Clone this repository
 2. Install dependencies:
+
    ```bash
    uv sync
    ```
 
 3. Install Playwright browser:
+
    ```bash
    uv run playwright install --with-deps chromium
    ```
 
 4. Create environment file:
+
    ```bash
    cp .env.example .env
    ```
@@ -49,16 +54,19 @@ Page: https://read.amazon.com/kp/notebook
 ## Usage
 
 ### Basic scraping (all books):
+
 ```bash
 uv run python -m kindle_highlights scrape --out data/highlights.json
 ```
 
 ### Scrape specific book by ASIN:
+
 ```bash
 uv run python -m kindle_highlights scrape --asin B00X57B4JG --out highlights.json
 ```
 
 ### Run with visible browser (for debugging or manual 2FA):
+
 ```bash
 uv run python -m kindle_highlights scrape --headful
 ```
@@ -105,11 +113,13 @@ The tool exports JSON in this structure:
 ## Testing
 
 Run the test suite:
+
 ```bash
 uv run pytest tests/ -v
 ```
 
 Test the parser offline:
+
 ```bash
 uv run python test_parser.py
 ```
@@ -123,7 +133,7 @@ uv run python test_parser.py
 ## Architecture
 
 - `kindle_highlights/parser.py`: HTML parsing logic with BeautifulSoup
-- `kindle_highlights/scraper.py`: Playwright automation and scraping logic  
+- `kindle_highlights/scraper.py`: Playwright automation and scraping logic
 - `kindle_highlights/__main__.py`: CLI interface
 - `tests/`: Pytest test suite using offline HTML sample
 
@@ -134,23 +144,23 @@ The implementation follows the plan in `PLAN.md` with TDD approach using `pageex
 Amazon Kindle requests seem to be like this for a book by asin:
 
 curl 'https://read.amazon.com/kp/notebook?asin=B003P9XC62&contentLimitState=&' \
-  -H 'accept: */*' \
-  -H 'accept-language: en-US,en;q=0.9' \
-  -b 'session-id=131-2842127-6790611; ubid-main=130-8104810-5966362; lc-main=en_US; i18n-prefs=USD; at-main=Atza|IwEBIH53mbDINdQEHTRX-4x_-8kgFqqWn33Gk1K6Nb6N5KDFFb0wV9REmmEblflmePzGymuu7VrOtuUbCxKiAkMHVATXpVGJeaPX14Wzp5SQUMBU9ktOdKIaHHNwPljBoqEJQFko2CCsPMi9UWyvktR2xZAuYhjpouMA8NXm54d0ac1Vk3xXlg0al6T5GxmFWL5_WicXJcJN6qUhL_UrwWFZyGksYZaNvY9qF_dXRjsF9K6cqA; sess-at-main="r/eM1xb6fjFr/RfYOlSOBtzYcfGCJSV0ZYJJepxOunc="; sst-main=Sst1|PQF343K8Y-AOLgDoKB1ep-wHCY4NyuiC59egnEJtpE65fHLS4xDoIV1qmcRjv0gvD7NdaTWCRIev7CXGzZvk6F7bviEwA_V04eHkG0zzlspxdEn1c4O-nD6TzEKa_cbRuA4oAQKNC5_9WX0AUgRK5wIIHhw9B1O0GBOfpr9umTFtoSMybM9A5uM9sWEIk5tlgpRzHRJdH4Z8x4H5VEo-6MsjRP4lJkXXK_BRlvAdAhTtCTH58YdkNpIbgp6R58yDTvZGDwXr0C0_1T_PwgZe8kUEbY86EgmhphHwItQS1DZhHV8; session-id-time=2082787201l; session-token=lyYqtdN2oDaiEKko8s4Ppdu+B41nV8QAS2wGlTX905ZhkUA7jKG/M+9X4c4IwS/50WdKtJyWEWFHHBncnIkg+po4smDU6nRc4NqOqlyzMPCATlReWOdvTQcjtffVzt5fIZKqwdT2Yla1Cgh2Q/0jq4zlJrveI7Rv9UxMjSvFpSMdetS/itIRwx1XJdZzHgodbW3DR7M3EU+IgJe6GNEX8DDotfyfqNVhwna6qDhMoSBaJS1ZQCxuVj9vJl4ta6nQmB9fAlaF1SWZkRpFUrIp7qR3SEE+mifHSMCwcXLKz7uBUUxx5YhWwG3yWmHIzNxUFnlnkym50QmyVStQPTKSZW8tQBNC3Jz6mWYcCckPz47E2yTZusZLmsQP9FOEACrd; x-main="XOnVmfHQ?0EEX9vzr6ZUJeHpFBZRw1OfP0h8n5bY2r@NoISj133P4ZvxVcvqzIkg"; csm-hit=tb:8YSMZYV5ZBZ4N6BGX7PD+s-8YSMZYV5ZBZ4N6BGX7PD|1757735442372&t:1757735442372&adb:adblk_no' \
-  -H 'dnt: 1' \
-  -H 'priority: u=1, i' \
-  -H 'referer: https://read.amazon.com/kp/notebook?ref_=k4w_ms_notebook' \
-  -H 'sec-ch-ua: "Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"' \
-  -H 'sec-ch-ua-mobile: ?0' \
-  -H 'sec-ch-ua-platform: "macOS"' \
-  -H 'sec-fetch-dest: empty' \
-  -H 'sec-fetch-mode: cors' \
-  -H 'sec-fetch-site: same-origin' \
-  -H 'sec-gpc: 1' \
-  -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36' \
-  -H 'x-requested-with: XMLHttpRequest'
+ -H 'accept: _/_' \
+ -H 'accept-language: en-US,en;q=0.9' \
+ -b 'session-id=131-2842127-6790611; ubid-main=130-8104810-5966362; lc-main=en*US; i18n-prefs=USD; at-main=Atza|IwEBIH53mbDINdQEHTRX-4x*-8kgFqqWn33Gk1K6Nb6N5KDFFb0wV9REmmEblflmePzGymuu7VrOtuUbCxKiAkMHVATXpVGJeaPX14Wzp5SQUMBU9ktOdKIaHHNwPljBoqEJQFko2CCsPMi9UWyvktR2xZAuYhjpouMA8NXm54d0ac1Vk3xXlg0al6T5GxmFWL5*WicXJcJN6qUhL_UrwWFZyGksYZaNvY9qF_dXRjsF9K6cqA; sess-at-main="r/eM1xb6fjFr/RfYOlSOBtzYcfGCJSV0ZYJJepxOunc="; sst-main=Sst1|PQF343K8Y-AOLgDoKB1ep-wHCY4NyuiC59egnEJtpE65fHLS4xDoIV1qmcRjv0gvD7NdaTWCRIev7CXGzZvk6F7bviEwA_V04eHkG0zzlspxdEn1c4O-nD6TzEKa_cbRuA4oAQKNC5_9WX0AUgRK5wIIHhw9B1O0GBOfpr9umTFtoSMybM9A5uM9sWEIk5tlgpRzHRJdH4Z8x4H5VEo-6MsjRP4lJkXXK_BRlvAdAhTtCTH58YdkNpIbgp6R58yDTvZGDwXr0C0_1T_PwgZe8kUEbY86EgmhphHwItQS1DZhHV8; session-id-time=2082787201l; session-token=lyYqtdN2oDaiEKko8s4Ppdu+B41nV8QAS2wGlTX905ZhkUA7jKG/M+9X4c4IwS/50WdKtJyWEWFHHBncnIkg+po4smDU6nRc4NqOqlyzMPCATlReWOdvTQcjtffVzt5fIZKqwdT2Yla1Cgh2Q/0jq4zlJrveI7Rv9UxMjSvFpSMdetS/itIRwx1XJdZzHgodbW3DR7M3EU+IgJe6GNEX8DDotfyfqNVhwna6qDhMoSBaJS1ZQCxuVj9vJl4ta6nQmB9fAlaF1SWZkRpFUrIp7qR3SEE+mifHSMCwcXLKz7uBUUxx5YhWwG3yWmHIzNxUFnlnkym50QmyVStQPTKSZW8tQBNC3Jz6mWYcCckPz47E2yTZusZLmsQP9FOEACrd; x-main="XOnVmfHQ?0EEX9vzr6ZUJeHpFBZRw1OfP0h8n5bY2r@NoISj133P4ZvxVcvqzIkg"; csm-hit=tb:8YSMZYV5ZBZ4N6BGX7PD+s-8YSMZYV5ZBZ4N6BGX7PD|1757735442372&t:1757735442372&adb:adblk_no' \
+ -H 'dnt: 1' \
+ -H 'priority: u=1, i' \
+ -H 'referer: https://read.amazon.com/kp/notebook?ref*=k4w_ms_notebook' \
+ -H 'sec-ch-ua: "Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"' \
+ -H 'sec-ch-ua-mobile: ?0' \
+ -H 'sec-ch-ua-platform: "macOS"' \
+ -H 'sec-fetch-dest: empty' \
+ -H 'sec-fetch-mode: cors' \
+ -H 'sec-fetch-site: same-origin' \
+ -H 'sec-gpc: 1' \
+ -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36' \
+ -H 'x-requested-with: XMLHttpRequest'
 
-  Which then returns a response like this:
+Which then returns a response like this:
 
 <!doctype html>
 <html lang="en" class="a-no-js" data-19ax5a9jf="dingo">
