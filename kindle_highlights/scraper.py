@@ -111,9 +111,18 @@ class KindleScraper:
             print(f"Found {current_count} books...")
         
         # Get the HTML and parse books
-        library_html = await page.locator('#kp-notebook-library').inner_html()
+        library_element = page.locator('#kp-notebook-library')
+        if await library_element.count() == 0:
+            print("Warning: Could not find #kp-notebook-library element")
+            print("Saving full page HTML for debugging...")
+            page_html = await page.content()
+            with open('debug_page.html', 'w', encoding='utf-8') as f:
+                f.write(page_html)
+            return []
+
+        library_html = await library_element.inner_html()
         books = parse_book_library(library_html)
-        
+
         print(f"Total books found: {len(books)}")
         return books
     

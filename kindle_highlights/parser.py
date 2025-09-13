@@ -59,36 +59,41 @@ def parse_book_library(html: str) -> List[dict]:
     """Parse the book library from kp-notebook-library section."""
     soup = BeautifulSoup(html, 'html.parser')
     books = []
-    
+
+    # First try to find the wrapper div
     library = soup.find('div', id='kp-notebook-library')
-    if not library:
-        return books
-    
-    for book_elem in library.find_all('div', class_='kp-notebook-library-each-book'):
+    if library:
+        book_elements = library.find_all('div', class_='kp-notebook-library-each-book')
+    else:
+        # If no wrapper, assume we have the inner HTML directly
+        book_elements = soup.find_all('div', class_='kp-notebook-library-each-book')
+
+
+    for book_elem in book_elements:
         asin = book_elem.get('id', '')
         if not asin:
             continue
-            
+
         # Extract title
         title_elem = book_elem.find('h2', class_='kp-notebook-searchable')
         title = title_elem.get_text(strip=True) if title_elem else ''
-        
+
         # Extract author
         author_elem = book_elem.find('p', class_='kp-notebook-searchable')
         author_text = author_elem.get_text(strip=True) if author_elem else ''
         author = author_text.replace('By: ', '') if author_text.startswith('By: ') else author_text
-        
+
         # Extract cover URL
         img_elem = book_elem.find('img', class_='kp-notebook-cover-image')
         cover_url = img_elem.get('src', '') if img_elem else ''
-        
+
         books.append({
             'asin': asin,
             'title': title,
             'author': author,
             'cover_url': cover_url
         })
-    
+
     return books
 
 
