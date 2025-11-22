@@ -1,22 +1,24 @@
-import pytest
 from pathlib import Path
-from kindle_highlights.parser import (
-    parse_book_library,
-    parse_annotations_html,
-    parse_book_from_annotations_page,
+
+import pytest
+
+from parser import (
     extract_color_from_classes,
     extract_page_location,
+    parse_annotations_html,
+    parse_book_from_annotations_page,
+    parse_book_library,
 )
 
 
 @pytest.fixture
-def sample_html():
+def sample_html() -> str:
     """Load the sample Kindle notebook HTML fixture."""
     html_path = Path(__file__).parent / "fixtures" / "sample_notebook.html"
     return html_path.read_text(encoding="utf-8")
 
 
-def test_extract_color_from_classes():
+def test_extract_color_from_classes() -> None:
     """Test color extraction from CSS classes."""
     assert extract_color_from_classes(["kp-notebook-highlight-yellow"]) == "yellow"
     assert extract_color_from_classes(["kp-notebook-highlight-blue"]) == "blue"
@@ -25,7 +27,7 @@ def test_extract_color_from_classes():
     assert extract_color_from_classes(["some-other-class"]) == "yellow"  # default
 
 
-def test_extract_page_location():
+def test_extract_page_location() -> None:
     """Test page and location extraction from text."""
     page, location = extract_page_location("Page 42 • Location 283")
     assert page == 42
@@ -44,7 +46,7 @@ def test_extract_page_location():
     assert location is None
 
 
-def test_parse_book_library(sample_html):
+def test_parse_book_library(sample_html: str) -> None:
     """Test parsing the book library from HTML."""
     books = parse_book_library(sample_html)
 
@@ -59,7 +61,7 @@ def test_parse_book_library(sample_html):
     assert first_book["cover_url"].startswith("https://m.media-amazon.com")
 
 
-def test_parse_annotations_html(sample_html):
+def test_parse_annotations_html(sample_html: str) -> None:
     """Test parsing highlights from annotations HTML."""
     highlights = parse_annotations_html(sample_html)
 
@@ -77,7 +79,7 @@ def test_parse_annotations_html(sample_html):
     assert any("Charles Babbage" in text for text in highlight_texts)
 
 
-def test_parse_book_from_annotations_page(sample_html):
+def test_parse_book_from_annotations_page(sample_html: str) -> None:
     """Test parsing a complete book with metadata and highlights."""
     book = parse_book_from_annotations_page(sample_html)
 
@@ -95,7 +97,7 @@ def test_parse_book_from_annotations_page(sample_html):
         assert highlight.color in ["yellow", "blue", "pink", "orange"]
 
 
-def test_highlights_have_meaningful_content(sample_html):
+def test_highlights_have_meaningful_content(sample_html: str) -> None:
     """Test that parsed highlights contain expected meaningful content."""
     highlights = parse_annotations_html(sample_html)
 
@@ -114,7 +116,7 @@ def test_highlights_have_meaningful_content(sample_html):
     assert len(found_keywords) >= 2, f"Found keywords: {found_keywords}"
 
 
-def test_empty_html_handling():
+def test_empty_html_handling() -> None:
     """Test handling of empty or malformed HTML."""
     empty_highlights = parse_annotations_html("")
     assert empty_highlights == []

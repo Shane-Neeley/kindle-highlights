@@ -3,17 +3,16 @@ import asyncio
 import sys
 from pathlib import Path
 
-from .scraper import scrape_kindle_highlights
+from scraper import scrape_kindle_highlights
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Scrape Kindle highlights from Amazon's notebook page", prog="kindle-highlights"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # Scrape command
     scrape_parser = subparsers.add_parser("scrape", help="Scrape highlights from Kindle notebook")
     scrape_parser.add_argument(
         "--out",
@@ -35,7 +34,6 @@ def main():
     args = parser.parse_args()
 
     if args.command == "scrape":
-        # Check for .env file
         env_path = Path(".env")
         if not env_path.exists():
             print("Error: .env file not found. Please create one based on .env.example")
@@ -68,7 +66,7 @@ def main():
             print(f"Total highlights: {total_highlights}")
             print(f"Output saved to: {args.out}")
 
-        except Exception as e:
+        except Exception as e:  # pragma: no cover - CLI feedback path
             print(f"Error: {e}")
             sys.exit(1)
 
