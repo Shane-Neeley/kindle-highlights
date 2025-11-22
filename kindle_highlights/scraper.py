@@ -1,13 +1,13 @@
-import asyncio
-import os
 import json
-from pathlib import Path
-from typing import List, Optional
+import os
 from datetime import datetime
+from pathlib import Path
+
 import pyotp
 from dotenv import load_dotenv
-from playwright.async_api import async_playwright, Page
-from .parser import Book, parse_book_library, parse_book_from_annotations_page
+from playwright.async_api import Page, async_playwright
+
+from .parser import Book, parse_book_from_annotations_page, parse_book_library
 
 
 class KindleScraper:
@@ -19,9 +19,7 @@ class KindleScraper:
         self.totp_secret = os.getenv("AMAZON_TOTP_SECRET")
 
         if not self.email or not self.password:
-            raise ValueError(
-                "AMAZON_EMAIL and AMAZON_PASSWORD must be set in .env file"
-            )
+            raise ValueError("AMAZON_EMAIL and AMAZON_PASSWORD must be set in .env file")
 
         self.auth_state_path = Path("playwright/.auth/user.json")
         self.auth_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -33,9 +31,7 @@ class KindleScraper:
 
         # Wait for either login form or already logged in content
         try:
-            await page.wait_for_selector(
-                'input[name="email"], #kp-notebook-library', timeout=10000
-            )
+            await page.wait_for_selector('input[name="email"], #kp-notebook-library', timeout=10000)
         except Exception as e:
             print(f"Page took too long to load: {e}")
             return False
@@ -88,7 +84,7 @@ class KindleScraper:
             print(f"Authentication failed - could not find notebook library: {e}")
             return False
 
-    async def get_book_list(self, page: Page) -> List[dict]:
+    async def get_book_list(self, page: Page) -> list[dict]:
         """Get list of all annotated books."""
         print("Getting list of annotated books...")
 
@@ -134,7 +130,7 @@ class KindleScraper:
         print(f"Total books found: {len(books)}")
         return books
 
-    async def scrape_book_highlights(self, page: Page, asin: str) -> Optional[Book]:
+    async def scrape_book_highlights(self, page: Page, asin: str) -> Book | None:
         """Scrape highlights for a specific book."""
         print(f"Scraping highlights for book {asin}...")
 
@@ -173,9 +169,7 @@ class KindleScraper:
         # Check for truncation banner
         truncation_banner = page.locator("#kp-notebook-hidden-annotations-summary")
         if await truncation_banner.count() > 0:
-            print(
-                f"Warning: Highlights for book {asin} may be truncated due to export limits"
-            )
+            print(f"Warning: Highlights for book {asin} may be truncated due to export limits")
 
         # Get the full page HTML and parse
         page_html = await page.content()
@@ -186,16 +180,19 @@ class KindleScraper:
 
         return book
 
-    async def scrape_all_books(self, specific_asin: Optional[str] = None, output_path: str = "highlights.json", resume: bool = True) -> List[Book]:
+    async def scrape_all_books(
+        self,
+        specific_asin: str | None = None,
+        output_path: str = "highlights.json",
+        resume: bool = True,
+    ) -> list[Book]:
         """Scrape highlights from all books or a specific book."""
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
 
             # Load auth state if it exists
             if self.auth_state_path.exists():
-                context = await browser.new_context(
-                    storage_state=str(self.auth_state_path)
-                )
+                context = await browser.new_context(storage_state=str(self.auth_state_path))
             else:
                 context = await browser.new_context()
 
@@ -219,7 +216,9 @@ class KindleScraper:
                         self.save_book_progressively(book, output_path)
                 else:
                     # Load existing data to check for already processed books
-                    existing_data = self.load_existing_data(output_path) if resume else {"books": []}
+                    existing_data = (
+                        self.load_existing_data(output_path) if resume else {"books": []}
+                    )
                     existing_asins = self.get_existing_book_asins(existing_data)
 
                     # Get all books and scrape each one
@@ -256,9 +255,9 @@ class KindleScraper:
             return {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
 
         try:
-            with open(output_path, "r", encoding="utf-8") as f:
+            with open(output_path, encoding="utf-8") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Could not load existing file {output_path}: {e}")
             return {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
 
@@ -323,7 +322,7 @@ class KindleScraper:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def export_to_json(self, books: List[Book], output_path: str):
+    def export_to_json(self, books: list[Book], output_path: str):
         """Export scraped books to JSON file (batch mode - kept for compatibility)."""
         data = {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
 
@@ -339,11 +338,13 @@ class KindleScraper:
 
 
 async def scrape_kindle_highlights(
-    output_path: str, asin: Optional[str] = None, headless: bool = True, resume: bool = True
+    output_path: str, asin: str | None = None, headless: bool = True, resume: bool = True
 ):
     """Main function to scrape Kindle highlights."""
     scraper = KindleScraper(headless=headless)
-    books = await scraper.scrape_all_books(specific_asin=asin, output_path=output_path, resume=resume)
+    books = await scraper.scrape_all_books(
+        specific_asin=asin, output_path=output_path, resume=resume
+    )
 
     # Only export at the end if we got any new books and we're not using progressive saving
     if not resume and books:

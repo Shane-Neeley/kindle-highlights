@@ -11,8 +11,8 @@ from kindle_highlights.parser import (
 
 @pytest.fixture
 def sample_html():
-    """Load the sample HTML file for testing."""
-    html_path = Path(__file__).parent.parent / "pageexample.html"
+    """Load the sample Kindle notebook HTML fixture."""
+    html_path = Path(__file__).parent / "fixtures" / "sample_notebook.html"
     return html_path.read_text(encoding="utf-8")
 
 

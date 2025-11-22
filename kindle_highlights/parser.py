@@ -1,7 +1,7 @@
-from dataclasses import dataclass
-from typing import List, Optional
-from bs4 import BeautifulSoup
 import re
+from dataclasses import dataclass
+
+from bs4 import BeautifulSoup
 
 
 @dataclass
@@ -9,9 +9,9 @@ class Highlight:
     id: str
     color: str
     text: str
-    page: Optional[int] = None
-    location: Optional[int] = None
-    note: Optional[str] = None
+    page: int | None = None
+    location: int | None = None
+    note: str | None = None
 
 
 @dataclass
@@ -20,10 +20,10 @@ class Book:
     title: str
     author: str
     cover_url: str
-    highlights: List[Highlight]
+    highlights: list[Highlight]
 
 
-def extract_color_from_classes(classes: List[str]) -> str:
+def extract_color_from_classes(classes: list[str]) -> str:
     """Extract highlight color from CSS class names."""
     for cls in classes:
         if cls.endswith("-yellow"):
@@ -37,7 +37,7 @@ def extract_color_from_classes(classes: List[str]) -> str:
     return "yellow"  # default
 
 
-def extract_page_location(text: str) -> tuple[Optional[int], Optional[int]]:
+def extract_page_location(text: str) -> tuple[int | None, int | None]:
     """Extract page and location numbers from header text."""
     page, location = None, None
 
@@ -54,7 +54,7 @@ def extract_page_location(text: str) -> tuple[Optional[int], Optional[int]]:
     return page, location
 
 
-def parse_book_library(html: str) -> List[dict]:
+def parse_book_library(html: str) -> list[dict]:
     """Parse the book library from kp-notebook-library section."""
     soup = BeautifulSoup(html, "html.parser")
     books = []
@@ -79,24 +79,18 @@ def parse_book_library(html: str) -> List[dict]:
         # Extract author
         author_elem = book_elem.find("p", class_="kp-notebook-searchable")
         author_text = author_elem.get_text(strip=True) if author_elem else ""
-        author = (
-            author_text.replace("By: ", "")
-            if author_text.startswith("By: ")
-            else author_text
-        )
+        author = author_text.replace("By: ", "") if author_text.startswith("By: ") else author_text
 
         # Extract cover URL
         img_elem = book_elem.find("img", class_="kp-notebook-cover-image")
         cover_url = img_elem.get("src", "") if img_elem else ""
 
-        books.append(
-            {"asin": asin, "title": title, "author": author, "cover_url": cover_url}
-        )
+        books.append({"asin": asin, "title": title, "author": author, "cover_url": cover_url})
 
     return books
 
 
-def parse_annotations_html(html: str) -> List[Highlight]:
+def parse_annotations_html(html: str) -> list[Highlight]:
     """Parse highlights from annotations HTML."""
     soup = BeautifulSoup(html, "html.parser")
     highlights = []
@@ -165,7 +159,7 @@ def parse_annotations_html(html: str) -> List[Highlight]:
     return highlights
 
 
-def parse_book_from_annotations_page(html: str) -> Optional[Book]:
+def parse_book_from_annotations_page(html: str) -> Book | None:
     """Parse book metadata and highlights from a single book's annotations page."""
     soup = BeautifulSoup(html, "html.parser")
 
