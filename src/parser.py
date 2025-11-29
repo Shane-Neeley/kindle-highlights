@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
 from typing import TypedDict
@@ -45,12 +46,12 @@ def parse_book_library(html_content: str) -> list[dict[str, str]]:
     for book_element in book_elements:
         asin = str(book_element.get("id", ""))
         searchables = book_element.select(".kp-notebook-searchable")
-        title = searchables[0].get_text(strip=True) if searchables else ""
+        title = html.unescape(searchables[0].get_text(strip=True)) if searchables else ""
 
         author = ""
         if len(searchables) > 1:
             raw_author = searchables[1].get_text(strip=True)
-            author = raw_author.removeprefix("By:").strip()
+            author = html.unescape(raw_author.removeprefix("By:").strip())
 
         cover_element = book_element.select_one("img")
         cover_url = str(cover_element.get("src", "")) if cover_element else ""
@@ -108,7 +109,7 @@ def parse_annotations_html(html_content: str) -> list[Highlight]:
             highlight_id = str(parent_with_id.get("id", "")) if parent_with_id else ""
 
         text_element = element.select_one(".a-size-base-plus") or element
-        text = text_element.get_text(strip=True)
+        text = html.unescape(text_element.get_text(strip=True))
 
         classes = element.get("class", [])
         if not isinstance(classes, list):
@@ -122,7 +123,7 @@ def parse_annotations_html(html_content: str) -> list[Highlight]:
 
         note_element = element.find_next_sibling("div", class_="kp-notebook-note")
         note_span = note_element.select_one(".a-size-base-plus") if note_element else None
-        note = note_span.get_text(strip=True) if note_span else None
+        note = html.unescape(note_span.get_text(strip=True)) if note_span else None
 
         highlights.append(Highlight(highlight_id, text, color, page, location, note))
 
@@ -139,8 +140,8 @@ def parse_book_from_annotations_page(html_content: str) -> Book | None:
     if not book_title_element or len(author_elements) < 3:
         return None
 
-    book_title = book_title_element.get_text(strip=True)
-    author = author_elements[2].get_text(strip=True)
+    book_title = html.unescape(book_title_element.get_text(strip=True))
+    author = html.unescape(author_elements[2].get_text(strip=True))
 
     cover_element = soup.select_one(".kp-notebook-cover-image-border")
     cover_url = str(cover_element.get("src", "")) if cover_element else ""
