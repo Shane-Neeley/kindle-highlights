@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
-from datetime import datetime
+import re
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
@@ -36,31 +37,86 @@ class ExportData(TypedDict):
     books: list[BookDict]
 
 
+ASIN_PATTERN = re.compile(r"^[A-Z0-9]{10}$")
+AUTH_MODES = {"auto", "session", "interactive", "credentials"}
+
+
+def iso_timestamp() -> str:
+    """Return an unambiguous UTC timestamp for export metadata."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def validate_asin(asin: str) -> str:
+    """Validate an ASIN before interpolating it into a CSS selector."""
+    normalized = asin.strip().upper()
+    if not ASIN_PATTERN.fullmatch(normalized):
+        raise ValueError("ASIN must contain exactly 10 letters or digits")
+    return normalized
+
+
+def is_amazon_error_page(title: str) -> bool:
+    """Recognize Amazon's generic pre-login failure page."""
+    return title.strip().casefold() == "something went wrong"
+
+
 class KindleScraper:
-    def __init__(self, headless: bool = True):
+    def __init__(
+        self,
+        headless: bool = False,
+        auth_mode: str = "auto",
+        auth_state_path: str | Path = "playwright/.auth/user.json",
+    ):
         load_dotenv()
         self.headless = headless
-        email = os.getenv("AMAZON_EMAIL")
-        password = os.getenv("AMAZON_PASSWORD")
+        if auth_mode not in AUTH_MODES:
+            raise ValueError(f"Unknown authentication mode: {auth_mode}")
+        if auth_mode == "interactive" and headless:
+            raise ValueError("Interactive authentication requires a visible browser")
+
+        self.auth_mode = auth_mode
+        self.email: str | None = os.getenv("AMAZON_EMAIL")
+        self.password: str | None = os.getenv("AMAZON_PASSWORD")
         self.totp_secret: str | None = os.getenv("AMAZON_TOTP_SECRET")
-
-        if not email or not password:
-            raise ValueError("AMAZON_EMAIL and AMAZON_PASSWORD must be set in .env file")
-
-        self.email: str = email
-        self.password: str = password
-        self.auth_state_path = Path("playwright/.auth/user.json")
+        self.auth_state_path = Path(auth_state_path)
         self.auth_state_path.parent.mkdir(parents=True, exist_ok=True)
 
+        if auth_mode == "credentials" and not self.has_credentials:
+            raise ValueError("Credential authentication requires AMAZON_EMAIL and AMAZON_PASSWORD")
+
+    @property
+    def has_credentials(self) -> bool:
+        return bool(self.email and self.password)
+
+    async def _wait_for_manual_sign_in(self, page: Page) -> bool:
+        if self.headless:
+            return False
+
+        print("Complete the Amazon sign-in in the browser window.")
+        print("The session will be saved locally for future runs.")
+        try:
+            await page.wait_for_selector("#kp-notebook-library", timeout=300000)
+            return True
+        except Exception as exc:  # pragma: no cover - user timing
+            print(f"Manual sign-in did not complete: {exc}")
+            return False
+
     async def authenticate(self, page: Page) -> bool:
-        """Authenticate with Amazon account."""
+        """Reuse a saved session, then authenticate using the selected fallback."""
         print("Navigating to Amazon Kindle notebook...")
         await page.goto("https://read.amazon.com/kp/notebook?ref_=k4w_ms_notebook")
+
+        if is_amazon_error_page(await page.title()):
+            print(
+                "Amazon rejected the notebook request before sign-in. "
+                "Refresh the saved session in the default visible browser mode."
+            )
+            return False
 
         # Wait for either login form or already logged in content
         login_or_library = (
             'input[name="email"]:not([type="hidden"]), '
             'input#ap_email:not([type="hidden"]), '
+            'input#ap_email_login:not([type="hidden"]), '
             "#kp-notebook-library"
         )
 
@@ -72,16 +128,31 @@ class KindleScraper:
 
         # Check if already logged in
         if await page.locator("#kp-notebook-library").count() > 0:
-            print("Already logged in!")
+            print("Using saved Amazon session.")
             return True
+
+        if self.auth_mode == "session":
+            print("Saved Amazon session is missing or expired.")
+            return False
+
+        if self.auth_mode == "interactive" or not self.has_credentials:
+            if self.headless:
+                print(
+                    "No valid saved session or credentials are available. "
+                    "Run without --headless to sign in interactively."
+                )
+                return False
+            return await self._wait_for_manual_sign_in(page)
 
         # Fill in email (or reuse claimed email if Amazon pre-selects account)
         email_input = page.locator(
-            'input[name="email"]:not([type="hidden"]), input#ap_email:not([type="hidden"])'
+            'input[name="email"]:not([type="hidden"]), '
+            'input#ap_email:not([type="hidden"]), '
+            'input#ap_email_login:not([type="hidden"])'
         )
         if await email_input.count() > 0:
             print("Entering email...")
-            await email_input.first.fill(self.email)
+            await email_input.first.fill(cast(str, self.email))
             await page.click('input[type="submit"], input#continue')
             await page.wait_for_timeout(2000)
         else:
@@ -99,7 +170,7 @@ class KindleScraper:
         )
         if await password_input.count() > 0:
             print("Entering password...")
-            await password_input.first.fill(self.password)
+            await password_input.first.fill(cast(str, self.password))
             await page.click('input[type="submit"], input#signInSubmit')
             await page.wait_for_timeout(3000)
 
@@ -109,17 +180,13 @@ class KindleScraper:
             if self.totp_secret:
                 totp = pyotp.TOTP(self.totp_secret)
                 code = totp.now()
-                print(f"Entering TOTP code: {code}")
+                print("Entering TOTP code...")
                 await totp_input.fill(code)
                 await page.click('input[type="submit"]')
                 await page.wait_for_timeout(3000)
             else:
                 print("TOTP required but AMAZON_TOTP_SECRET not set.")
-                if not self.headless:
-                    print("Please complete 2FA manually in the browser window.")
-                    await page.wait_for_selector("#kp-notebook-library", timeout=60000)
-                else:
-                    return False
+                return await self._wait_for_manual_sign_in(page)
 
         # Wait for successful login
         try:
@@ -160,24 +227,29 @@ class KindleScraper:
 
         library_element = page.locator("#kp-notebook-library")
         if await library_element.count() == 0:
-            print("Warning: Could not find #kp-notebook-library element")
-            print("Saving full page HTML for debugging...")
-            page_html = await page.content()
-            await asyncio.to_thread(
-                Path("debug_page.html").write_text,
-                page_html,
-                encoding="utf-8",
+            raise RuntimeError(
+                "Could not find the Kindle library. Amazon may have changed the page "
+                "or returned an incomplete response. Authenticated page HTML was not "
+                "saved because it may contain private data."
             )
-            return []
 
         library_html = await library_element.inner_html()
-        books = parse_book_library(library_html)
+        parsed_books = parse_book_library(library_html)
+        books: list[dict[str, str]] = []
+        for book in parsed_books:
+            try:
+                book["asin"] = validate_asin(book["asin"])
+            except (KeyError, ValueError) as exc:
+                print(f"Warning: Skipping malformed library entry: {exc}")
+                continue
+            books.append(book)
 
         print(f"Total books found: {len(books)}")
         return books
 
     async def scrape_book_highlights(self, page: Page, asin: str) -> Book | None:
         """Scrape highlights for a specific book."""
+        asin = validate_asin(asin)
         print(f"Scraping highlights for book {asin}...")
 
         book_link = page.locator(f"#kp-notebook-library #{asin} a")
@@ -190,7 +262,17 @@ class KindleScraper:
             print(f"Failed to load annotations for book {asin}: {e}")
             return None
 
-        last_count = 0
+        metadata_text = await page.locator(".kp-notebook-metadata").all_text_contents()
+        expected_count = next(
+            (
+                int(match.group(1).replace(",", ""))
+                for text in metadata_text[:5]
+                if (match := re.search(r"([\d,]+)\s+Highlights?", text, flags=re.IGNORECASE))
+            ),
+            None,
+        )
+
+        last_count = -1
         stable_count = 0
 
         while stable_count < 3:
@@ -203,6 +285,9 @@ class KindleScraper:
                 "#kp-notebook-annotations .kp-notebook-highlight"
             ).count()
 
+            if expected_count is not None and current_count >= expected_count:
+                break
+
             if current_count == last_count:
                 stable_count += 1
             else:
@@ -212,6 +297,12 @@ class KindleScraper:
         truncation_banner = page.locator("#kp-notebook-hidden-annotations-summary")
         if await truncation_banner.count() > 0:
             print(f"Warning: Highlights for book {asin} may be truncated due to export limits")
+
+        if expected_count is not None and current_count < expected_count:
+            print(
+                f"Warning: Amazon reports {expected_count} highlights for {asin}, "
+                f"but only {current_count} were available to export"
+            )
 
         page_html = await page.content()
         book = parse_book_from_annotations_page(page_html)
@@ -231,7 +322,13 @@ class KindleScraper:
             browser = await p.chromium.launch(headless=self.headless)
 
             if self.auth_state_path.exists():
-                context = await browser.new_context(storage_state=str(self.auth_state_path))
+                try:
+                    context = await browser.new_context(storage_state=str(self.auth_state_path))
+                except Exception as exc:
+                    # A partial write or old Playwright version can make storage
+                    # state unreadable. Fall back without deleting forensic data.
+                    print(f"Saved browser session could not be loaded: {exc}")
+                    context = await browser.new_context()
             else:
                 context = await browser.new_context()
 
@@ -239,9 +336,10 @@ class KindleScraper:
 
             try:
                 if not await self.authenticate(page):
-                    raise Exception("Authentication failed")
+                    raise RuntimeError("Authentication failed")
 
                 await context.storage_state(path=str(self.auth_state_path))
+                self.auth_state_path.chmod(0o600)
 
                 books: list[Book] = []
 
@@ -284,7 +382,7 @@ class KindleScraper:
                 await browser.close()
 
     def _empty_export_data(self) -> ExportData:
-        return {"run": {"timestamp": datetime.now().isoformat() + "Z"}, "books": []}
+        return {"run": {"timestamp": iso_timestamp()}, "books": []}
 
     def load_existing_data(self, output_path: str) -> ExportData:
         """Load existing highlights data from JSON file."""
@@ -298,11 +396,29 @@ class KindleScraper:
             print(f"Warning: Could not load existing file {output_path}: {e}")
             return self._empty_export_data()
 
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("run"), dict)
+            or not isinstance(data.get("books"), list)
+        ):
+            print(f"Warning: Existing file {output_path} has an invalid export structure")
+            return self._empty_export_data()
+
         return cast(ExportData, data)
 
     def get_existing_book_asins(self, data: ExportData) -> set[str]:
         """Get set of ASINs that already exist in the data."""
-        return {book["asin"] for book in data["books"]}
+        asins: set[str] = set()
+        for book in data.get("books", []):
+            if not isinstance(book, dict):
+                continue
+            asin = book.get("asin")
+            if isinstance(asin, str):
+                try:
+                    asins.add(validate_asin(asin))
+                except ValueError:
+                    continue
+        return asins
 
     def book_to_dict(self, book: Book) -> BookDict:
         """Convert a Book object to dictionary format."""
@@ -350,11 +466,9 @@ class KindleScraper:
             data["books"].append(book_dict)
             print(f"Added book '{book.title}' with {len(book.highlights)} highlights")
 
-        data["run"]["timestamp"] = datetime.now().isoformat() + "Z"
+        data["run"]["timestamp"] = iso_timestamp()
 
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        self._atomic_write_json(data, output_path)
 
     def export_to_json(self, books: list[Book], output_path: str) -> None:
         """Export scraped books to JSON file (batch mode - kept for compatibility)."""
@@ -365,25 +479,52 @@ class KindleScraper:
             book_data = self.book_to_dict(book)
             data["books"].append(book_data)
 
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        self._atomic_write_json(data, output_path)
 
         print(f"Exported {len(books)} books to {output_path}")
+
+    def _atomic_write_json(self, data: ExportData, output_path: str) -> None:
+        """Write personal export data atomically with owner-only permissions."""
+        destination = Path(output_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary: Path | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=destination.parent,
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as file_handle:
+                temporary = Path(file_handle.name)
+                json.dump(data, file_handle, indent=2, ensure_ascii=False)
+                file_handle.flush()
+                os.fsync(file_handle.fileno())
+            temporary.chmod(0o600)
+            temporary.replace(destination)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
 
 async def scrape_kindle_highlights(
     output_path: str,
     asin: str | None = None,
-    headless: bool = True,
-    resume: bool = True,
+    headless: bool = False,
+    resume: bool = False,
+    auth_mode: str = "auto",
 ) -> list[Book]:
-    scraper = KindleScraper(headless=headless)
+    normalized_asin = validate_asin(asin) if asin else None
+    scraper = KindleScraper(headless=headless, auth_mode=auth_mode)
     books = await scraper.scrape_all_books(
-        specific_asin=asin, output_path=output_path, resume=resume
+        specific_asin=normalized_asin, output_path=output_path, resume=resume
     )
 
-    if not resume and books:
+    # A single-book refresh must update that book in the existing export, not
+    # replace the user's complete library with one title.
+    if not resume and not normalized_asin and books:
         scraper.export_to_json(books, output_path)
 
     return books

@@ -13,7 +13,6 @@ Python 3.13 tool that scrapes Kindle highlights from Amazon's notebook page usin
 ```bash
 uv sync
 uv run playwright install --with-deps chromium
-cp .env.example .env  # Then edit with credentials
 ```
 
 **Run scraper:**
@@ -25,8 +24,8 @@ uv run kindle-highlights scrape
 # Specific book
 uv run kindle-highlights scrape --asin B00X57B4JG
 
-# Visible browser (debugging/manual 2FA)
-uv run kindle-highlights scrape --headful
+# Headless automation after a session has been saved
+uv run kindle-highlights scrape --headless
 ```
 
 **Testing:**
@@ -52,7 +51,7 @@ Code lives directly under `src/` for both the CLI and FastAPI service.
 **`src/scraper.py`** - Playwright automation
 
 - `KindleScraper` class handles full workflow:
-  - **Authentication**: Email/password login, TOTP 2FA, session persistence (`playwright/.auth/user.json`)
+  - **Authentication**: Saved session first, interactive sign-in by default, optional credentials/TOTP automation
   - **Discovery**: Infinite scroll to load all books
   - **Scraping**: Click book → scroll annotations → parse HTML
   - **Progressive saving**: Each book saved immediately with resume capability
@@ -69,15 +68,15 @@ Code lives directly under `src/` for both the CLI and FastAPI service.
 
 **Authentication Flow**
 
-1. Navigate to notebook page
+1. Navigate to notebook page with saved storage state when present
 2. Check if logged in (`#kp-notebook-library` present)
-3. Fill email → password → TOTP (if required)
-4. Save session for reuse
+3. Fall back to interactive sign-in, or optional credentials in unattended mode
+4. Save session for reuse with owner-only permissions
 
-**Resume Functionality**
+**Refresh and Resume**
 
-- Default enabled: skips books already in output file
-- Allows restart without reprocessing
+- Full refresh is the default so changed annotations stay current
+- `--resume` skips books already in output and is intended for interruption recovery
 
 ### HTML Selectors
 
@@ -95,7 +94,7 @@ Code lives directly under `src/` for both the CLI and FastAPI service.
 
 ## Important Notes
 
-- **Amazon Passkeys**: Must be deleted before running (interferes with password login)
+- **Amazon Passkeys**: Supported through the default interactive sign-in
 - **Export Limits**: Amazon may truncate highlights for some books (scraper warns)
 - **Session Reset**: Delete `playwright/.auth/user.json` if login fails
 - **Tests**: Only unit tests pass without `pageexample.html` sample file

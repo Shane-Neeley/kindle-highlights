@@ -2,13 +2,14 @@
 
 Export all your Kindle highlights from Amazon's notebook page to structured JSON.
 
-> **Note:** You must disable/delete Amazon passkey authentication if enabled, as it interferes with password-based login.
-
 ## Features
 
 - ✨ Scrape all highlights from your entire Kindle library
-- 🔐 Secure authentication with 2FA/TOTP support
+- 🔐 Session-first authentication; no stored Amazon password required
+- 🪟 Interactive sign-in supports passkeys and manual 2FA
+- 🤖 Optional credentials/TOTP mode for unattended environments
 - 💾 Progressive saving with resume capability
+- 🛡️ Atomic private exports and a protected scrape API
 - 🎨 Preserves highlight colors and notes
 - 📍 Captures page numbers and locations
 - 🔄 Session persistence (no repeated logins)
@@ -24,8 +25,8 @@ Export all your Kindle highlights from Amazon's notebook page to structured JSON
 
 ### Python & Dependency Compatibility
 
-- `requires-python >= 3.13` (see `pyproject.toml`), tested locally on CPython 3.13.6 via uv.
-- Playwright’s [Python docs](https://playwright.dev/python/docs/intro) list support through Python 3.13, so `playwright>=1.40.0` remains valid on the latest interpreter.
+- `requires-python >= 3.13` (see `pyproject.toml`), verified locally on CPython 3.14.3 via uv.
+- Playwright installs its browser separately from Python, so use the documented `uv run playwright install --with-deps chromium` step after dependency installation.
 - `beautifulsoup4`, `python-dotenv`, and `pyotp` publish universal wheels with no CPython ABI constraints, so upgrading to 3.13 is safe without pin changes.
 
 ### Installation
@@ -38,28 +39,28 @@ cd kindle-highlights
 # Install dependencies
 uv sync
 
-# Install browser
+# Install the project browser
 uv run playwright install --with-deps chromium
 
-# Configure credentials
-cp .env.example .env
+# Run with a visible browser and sign in when prompted
+uv run kindle-highlights scrape
 ```
 
-Edit `.env` with your Amazon credentials:
-
-```env
-AMAZON_EMAIL=your-email@example.com
-AMAZON_PASSWORD=your-password
-AMAZON_TOTP_SECRET=your-totp-secret  # Optional, for 2FA
-```
+The first successful sign-in is saved in `playwright/.auth/user.json`. Later
+runs reuse that local session before attempting another authentication method.
+See [Authentication methods](docs/AUTHENTICATION.md) for passkey, headless, and
+unattended options.
 
 ### Usage
 
 **Scrape all books:**
 
 ```bash
-uv run kindle-highlights scrape --headful
+uv run kindle-highlights scrape
 ```
+
+Every current book is refreshed by default so edited or deleted annotations
+are reflected in the export.
 
 **Scrape specific book:**
 
@@ -73,10 +74,19 @@ uv run kindle-highlights scrape --asin B00X57B4JG
 uv run kindle-highlights scrape --out my-highlights.json
 ```
 
-**Manual 2FA (visible browser):**
+**Resume an interrupted initial export:**
 
 ```bash
-uv run kindle-highlights scrape --headful
+uv run kindle-highlights scrape --resume
+```
+
+`--resume` skips ASINs already in the output. It is fast, but does not detect
+changed highlights in those books.
+
+**Unattended run using a saved session or optional credentials:**
+
+```bash
+uv run kindle-highlights scrape --headless
 ```
 
 ### Service API
@@ -84,7 +94,7 @@ uv run kindle-highlights scrape --headful
 Run the FastAPI service locally (reload for development):
 
 ```bash
-uv run uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir src --reload
+uv run uvicorn app:app --host 127.0.0.1 --port 8000 --app-dir src --reload
 ```
 
 Endpoints:
@@ -92,9 +102,16 @@ Endpoints:
 - `GET /health` — service heartbeat + output path
 - `GET /books` — cached export payload
 - `GET /highlights` — flattened highlight list with book metadata
-- `POST /scrape` — trigger a scrape (`{"asin": "<ASIN>", "fresh": true}` to rescrape all)
+- `POST /scrape` — trigger a full refresh; set `fresh` to `false` only to resume
+  an interrupted export
 
 `HIGHLIGHTS_PATH` (optional) overrides where the API reads/writes the export file (default `data/highlights.json`).
+
+`POST /scrape` is disabled unless `KINDLE_SCRAPE_API_TOKEN` is configured.
+Send it as `Authorization: Bearer <token>`. This endpoint launches a browser
+and modifies local data, so never expose it anonymously. The read endpoints
+can also reveal personal notes; keep the service on loopback or protect it at
+your reverse proxy.
 
 ### Docker
 
@@ -108,7 +125,7 @@ docker run --rm -p 8000:8000 --env-file .env \
   kindle-highlights
 ```
 
-Mounting `data/` persists exports, and mounting `playwright/` keeps the cached Amazon auth state (`.auth/user.json`) between runs.
+Mounting `data/` persists exports, and mounting `playwright/` keeps the cached Amazon auth state (`.auth/user.json`) between runs. Set `KINDLE_SCRAPE_API_TOKEN` in `.env` before using `POST /scrape`.
 
 ## Output Format
 
@@ -140,23 +157,27 @@ Mounting `data/` persists exports, and mounting `playwright/` keeps the cached A
 
 ## How It Works
 
-1. **Authenticate** - Logs into Amazon with Playwright (headless browser)
+1. **Authenticate** - Reuses local session state or opens an interactive Playwright browser
 2. **Discover** - Scrolls through library to find all annotated books
 3. **Extract** - For each book, loads and scrolls annotations to get all highlights
 4. **Parse** - BeautifulSoup extracts structured data from HTML
 5. **Save** - Progressively saves each book to JSON (enables resume)
 
-## Resume Capability
+## Refresh and Resume
 
-By default, scraping resumes from where it left off. Already-processed books are skipped:
+By default, scraping refreshes the full current library. This is necessary
+because Kindle highlights can change after the first export.
 
 ```bash
-# Interrupted? Just run again - it continues from where it stopped
-uv run kindle-highlights scrape
+# Interrupted during a large initial export? Skip completed ASINs
+uv run kindle-highlights scrape --resume
 
-# Need a clean export? Disable resume to reprocess every book
+# Explicit spelling for the default full refresh
 uv run kindle-highlights scrape --fresh
 ```
+
+Progress is saved after every book using atomic file replacement, so a crash
+cannot leave a partially written JSON document.
 
 ## Testing
 
@@ -198,9 +219,9 @@ This repository is public. Please keep personal work artifacts (notes, scratch o
 
 | Issue                                                       | Solution                                                                                         |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **Login fails**                                             | Delete `playwright/.auth/user.json` and try again                                                |
-| **2FA required**                                            | Add `AMAZON_TOTP_SECRET` to `.env` or use `--headful` mode                                       |
-| **Passkey blocking**                                        | Disable/delete Amazon passkey in your account settings                                           |
+| **Saved login fails**                                       | Run the default visible mode and sign in again; delete `playwright/.auth/user.json` only if needed |
+| **2FA/passkey required**                                    | Complete it in the visible browser; the resulting session is saved locally                       |
+| **Headless login fails**                                    | Refresh the session interactively first, or configure optional `.env` credentials                 |
 | **Missing highlights**                                      | Some books have Amazon export limits (scraper will warn)                                         |
 | **Browser executable missing (Playwright install message)** | Run `uv run playwright install --with-deps chromium` to download Chromium, then retry the scrape |
 | **General browser issues**                                  | Reinstall: `uv run playwright install --with-deps chromium`                                      |
@@ -223,20 +244,23 @@ Dockerfile          # Containerized service runner
 
 ### Environment Variables
 
-- `AMAZON_EMAIL` (required) - Your Amazon account email
-- `AMAZON_PASSWORD` (required) - Your Amazon account password
-- `AMAZON_TOTP_SECRET` (optional) - Base32 TOTP secret for 2FA
+- `AMAZON_EMAIL` (optional) - Email for unattended credential authentication
+- `AMAZON_PASSWORD` (optional) - Password for unattended credential authentication
+- `AMAZON_TOTP_SECRET` (optional) - Base32 TOTP secret for unattended 2FA
 - `HIGHLIGHTS_PATH` (optional) - Override where the API reads/writes the export JSON
+- `KINDLE_SCRAPE_API_TOKEN` (required for `POST /scrape`) - Long random bearer token
 
-### Getting TOTP Secret
+### Choosing an authentication method
 
-If you use authenticator apps for 2FA, the TOTP secret is the base32 key shown when you set up the authenticator. Save it during initial 2FA setup to enable automated authentication.
+Interactive sign-in is the default and supports Amazon’s current
+authentication UI without storing account credentials. Use credential/TOTP
+automation only when a human cannot refresh the saved session. See
+[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
 ## Limitations
 
-- **Amazon passkeys** must be disabled (password-based login required)
 - **Export limits** - Amazon may restrict highlights for some books
-- **Session cookies** - Stored in `playwright/.auth/user.json` (gitignored)
+- **Session cookies** - Stored locally in `playwright/.auth/user.json` (gitignored, mode `0600`)
 - **Rate limiting** - Uses 2-second delays to be respectful to Amazon's servers
 
 ## License
@@ -248,6 +272,7 @@ See LICENSE file for details.
 - Read `AGENTS.md` for repository-wide coding standards, commit expectations, and security reminders before opening a PR.
 - Run `uv run pytest -v`, `uv run ruff check`, and `ty check src tests` plus at least one dry scrape (`uv run kindle-highlights scrape --headful` when debugging selectors) to validate DOM changes.
 - Sanitize or delete `data/highlights.json` when sharing logs; never include `.env` or Playwright auth files in commits.
+- Read [SECURITY.md](SECURITY.md) before deploying the service API.
 - Keep the `pre-commit` hooks enabled so Ruff and Ty run automatically before each commit.
 
 ## Acknowledgments

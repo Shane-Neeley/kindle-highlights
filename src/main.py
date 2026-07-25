@@ -1,9 +1,26 @@
 import argparse
 import asyncio
-import sys
+import json
 from pathlib import Path
 
-from scraper import scrape_kindle_highlights
+from scraper import AUTH_MODES, scrape_kindle_highlights, validate_asin
+
+
+def argparse_asin(value: str) -> str:
+    try:
+        return validate_asin(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def export_counts(output_path: str) -> tuple[int, int]:
+    """Return total export counts without conflating them with this run."""
+    path = Path(output_path)
+    if not path.exists():
+        return 0, 0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    books = data.get("books", [])
+    return len(books), sum(len(book.get("highlights", [])) for book in books)
 
 
 def main() -> None:
@@ -19,34 +36,49 @@ def main() -> None:
         default="data/highlights.json",
         help="Output JSON file path (default: data/highlights.json)",
     )
-    scrape_parser.add_argument("--asin", help="Scrape only a specific book by ASIN")
-    scrape_parser.add_argument(
+    scrape_parser.add_argument("--asin", type=argparse_asin, help="Refresh one 10-character ASIN")
+    browser_group = scrape_parser.add_mutually_exclusive_group()
+    browser_group.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run without a visible browser (requires a saved session or credentials)",
+    )
+    browser_group.add_argument(
         "--headful",
+        dest="headless",
+        action="store_false",
+        help="Run with a visible browser (default; supports interactive sign-in)",
+    )
+    refresh_group = scrape_parser.add_mutually_exclusive_group()
+    refresh_group.add_argument(
+        "--resume",
         action="store_true",
-        help="Run browser in headful mode (useful for debugging or manual 2FA)",
+        help="Skip ASINs already in the output (fast recovery, but does not refresh changed books)",
+    )
+    refresh_group.add_argument(
+        "--fresh",
+        dest="resume",
+        action="store_false",
+        help="Refresh every current book (default)",
     )
     scrape_parser.add_argument(
-        "--fresh",
-        action="store_true",
-        help="Ignore existing output and rescrape every book instead of resuming",
+        "--auth",
+        choices=sorted(AUTH_MODES),
+        default="auto",
+        help="Authentication fallback after trying saved session state (default: auto)",
     )
+    scrape_parser.set_defaults(headless=False, resume=False)
 
     args = parser.parse_args()
 
     if args.command == "scrape":
-        env_path = Path(".env")
-        if not env_path.exists():
-            print("Error: .env file not found. Please create one based on .env.example")
-            print("Required variables: AMAZON_EMAIL, AMAZON_PASSWORD")
-            print("Optional: AMAZON_TOTP_SECRET (for 2FA)")
-            sys.exit(1)
-
         print("Starting Kindle highlights scraper...")
         print(f"Output file: {args.out}")
         if args.asin:
             print(f"Scraping specific book: {args.asin}")
-        print(f"Browser mode: {'headful' if args.headful else 'headless'}")
-        print(f"Resume previous run: {'yes' if not args.fresh else 'no (fresh run)'}")
+        print(f"Browser mode: {'headless' if args.headless else 'visible'}")
+        print(f"Authentication: {args.auth} (saved session is always tried first)")
+        print(f"Refresh existing books: {'no (--resume)' if args.resume else 'yes'}")
         print()
 
         try:
@@ -54,21 +86,22 @@ def main() -> None:
                 scrape_kindle_highlights(
                     output_path=args.out,
                     asin=args.asin,
-                    headless=not args.headful,
-                    resume=not args.fresh,
+                    headless=args.headless,
+                    resume=args.resume,
+                    auth_mode=args.auth,
                 )
             )
 
-            total_highlights = sum(len(book.highlights) for book in books)
+            total_books, total_highlights = export_counts(args.out)
             print()
             print("Scraping completed successfully!")
-            print(f"Books scraped: {len(books)}")
-            print(f"Total highlights: {total_highlights}")
+            print(f"Books processed this run: {len(books)}")
+            print(f"Export totals: {total_books} books, {total_highlights} highlights")
             print(f"Output saved to: {args.out}")
 
         except Exception as e:  # pragma: no cover - CLI feedback path
             print(f"Error: {e}")
-            sys.exit(1)
+            raise SystemExit(1) from e
 
     else:
         parser.print_help()

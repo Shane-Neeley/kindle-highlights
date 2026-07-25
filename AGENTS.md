@@ -8,9 +8,9 @@ Production code lives directly under `src/`: `scraper.py` drives Playwright logi
 
 - `uv sync` — install runtime + dev dependencies for Python 3.13.
 - `uv run playwright install --with-deps chromium` — install the browser bundle.
-- `uv run kindle-highlights scrape --out data/highlights.json` — scrape the full library; add `--asin <ASIN>` for one book.
-- `uv run kindle-highlights scrape --headful --asin <ASIN>` — debug selectors or manual 2FA in a visible browser.
-- `uv run kindle-highlights scrape --fresh` — ignore previous JSON progress and rescrape every book.
+- `uv run kindle-highlights scrape --out data/highlights.json` — visibly sign in if needed, then refresh the full library; add `--asin <ASIN>` for one book.
+- `uv run kindle-highlights scrape --headless --asin <ASIN>` — use saved session state or optional credentials without a visible browser.
+- `uv run kindle-highlights scrape --resume` — recover an interrupted export by skipping known ASINs; do not use it when current annotations are required.
 - `uv run pytest -v` — run the parser regression suite; add `-k name` for focused work.
 
 ## Coding Style & Naming Conventions
@@ -27,4 +27,4 @@ Follow the existing history of short, imperative subjects (“Fix book library p
 
 ## Security & Configuration Tips
 
-Never commit `.env`, Playwright auth state, or real highlight exports. Scrub `data/highlights.json` before sharing logs, prefer dummy ASINs in fixtures, document new environment variables inside `.env.example`, and delete `playwright/` when credentials change to rotate cached login state. The repository is public, so keep scratch notes in `docs/scratchpad/` (gitignored) rather than adding personal files to version control.
+Never commit `.env`, Playwright auth state, or real highlight exports. Interactive/saved-session auth is preferred over Amazon passwords. Scrub `data/highlights.json` before sharing logs, prefer dummy ASINs in fixtures, document new environment variables inside `.env.example`, and delete `playwright/` when credentials change to rotate cached login state. The repository is public, so keep scratch notes in `docs/scratchpad/` (gitignored) rather than adding personal files to version control.

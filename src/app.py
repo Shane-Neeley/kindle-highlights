@@ -6,16 +6,17 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field, field_validator
 
-from scraper import ExportData, scrape_kindle_highlights
+from scraper import ExportData, scrape_kindle_highlights, validate_asin
 
 load_dotenv()
 
@@ -28,9 +29,20 @@ DEFAULT_OUTPUT = "data/highlights.json"
 
 
 class ScrapeRequest(BaseModel):
-    asin: str | None = Field(default=None, description="Scrape a single ASIN when provided")
+    asin: str | None = Field(
+        default=None,
+        description="Scrape a single 10-character ASIN when provided",
+    )
     headful: bool = Field(default=False, description="Run the browser in headful mode")
-    fresh: bool = Field(default=False, description="Ignore cached progress and rescrape all books")
+    fresh: bool = Field(default=True, description="Ignore cached progress and rescrape all books")
+
+    @field_validator("asin", mode="before")
+    @classmethod
+    def normalize_asin(cls, value: object) -> str | None:
+        """Normalize API input using the same validation as the scraper."""
+        if value is None:
+            return None
+        return validate_asin(str(value))
 
 
 class ScrapeResponse(BaseModel):
@@ -56,6 +68,26 @@ def get_scrape_callable(app: FastAPI) -> ScrapeCallable:
 
 def set_scrape_callable(app: FastAPI, func: ScrapeCallable) -> None:
     app.state.scrape_callable = func
+
+
+def require_scrape_token(authorization: str | None = Header(default=None)) -> None:
+    """Protect the costly, state-changing scrape endpoint.
+
+    Read-only endpoints remain convenient for local integrations. The write
+    endpoint is disabled until the operator explicitly configures a token.
+    """
+    expected = os.getenv("KINDLE_SCRAPE_API_TOKEN")
+    if not expected:
+        raise HTTPException(
+            status_code=503,
+            detail="Scrape API is disabled; set KINDLE_SCRAPE_API_TOKEN to enable it",
+        )
+
+    scheme, _, supplied = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(
+        supplied.encode(), expected.encode()
+    ):
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
 
 
 def load_cached_export() -> ExportData:
@@ -125,7 +157,11 @@ async def list_highlights() -> dict[str, Any]:
     }
 
 
-@app.post("/scrape", response_model=ScrapeResponse)
+@app.post(
+    "/scrape",
+    response_model=ScrapeResponse,
+    dependencies=[Depends(require_scrape_token)],
+)
 async def trigger_scrape(payload: ScrapeRequest) -> ScrapeResponse:
     output_path = get_output_path()
     resume = not payload.fresh

@@ -41,6 +41,10 @@ def test_extract_page_location() -> None:
     assert page == 10
     assert location is None
 
+    page, location = extract_page_location("Yellow highlight | Page 1,024 | Location: 12,345")
+    assert page == 1024
+    assert location == 12345
+
     page, location = extract_page_location("No numbers here")
     assert page is None
     assert location is None

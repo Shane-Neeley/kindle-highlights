@@ -102,20 +102,56 @@ async def test_highlights_flattens_books(cached_export: Path) -> None:
 @pytest.mark.asyncio
 async def test_scrape_uses_injected_runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HIGHLIGHTS_PATH", str(tmp_path / "export.json"))
+    monkeypatch.setenv("KINDLE_SCRAPE_API_TOKEN", "test-token")
+    received: dict[str, Any] = {}
 
     async def fake_scrape(**kwargs: Any):
-        return [DummyBook("ASIN-1", ["a", "b"]), DummyBook("ASIN-2", ["c"])]
+        received.update(kwargs)
+        return [DummyBook("B000000001", ["a", "b"]), DummyBook("B000000002", ["c"])]
 
     set_scrape_callable(app, fake_scrape)
 
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.post("/scrape", json={"asin": "ASIN-1", "fresh": True})
+        response = await client.post(
+            "/scrape",
+            json={"asin": "b000000001"},
+            headers={"Authorization": "Bearer test-token"},
+        )
 
     body = response.json()
     assert response.status_code == 200
-    assert body["asin"] == "ASIN-1"
+    assert body["asin"] == "B000000001"
     assert body["books"] == 2
     assert body["highlights"] == 3
     assert body["resume"] is False
+    assert received["asin"] == "B000000001"
+
+
+@pytest.mark.asyncio
+async def test_scrape_is_disabled_without_operator_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("KINDLE_SCRAPE_API_TOKEN", raising=False)
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/scrape", json={})
+
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_scrape_rejects_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KINDLE_SCRAPE_API_TOKEN", "correct-token")
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/scrape",
+            json={},
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+
+    assert response.status_code == 401

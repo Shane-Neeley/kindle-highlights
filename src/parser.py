@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 
 class HighlightData(TypedDict):
@@ -86,11 +87,13 @@ def extract_color_from_classes(classes: list[str]) -> str:
 
 def extract_page_location(text: str) -> tuple[int | None, int | None]:
     """Extract page and location numbers from text."""
-    page_match = re.search(r"Page (\d+)", text)
-    location_match = re.search(r"Location (\d+)", text)
+    # Kindle formats large values with thousands separators (for example
+    # "Location 1,305"). Accept both formats and normalize them to integers.
+    page_match = re.search(r"Page\s+([\d,]+)", text, flags=re.IGNORECASE)
+    location_match = re.search(r"Location:?\s+([\d,]+)", text, flags=re.IGNORECASE)
 
-    page = int(page_match.group(1)) if page_match else None
-    location = int(location_match.group(1)) if location_match else None
+    page = int(page_match.group(1).replace(",", "")) if page_match else None
+    location = int(location_match.group(1).replace(",", "")) if location_match else None
 
     return page, location
 
@@ -106,12 +109,14 @@ def parse_annotations_html(html_content: str) -> list[Highlight]:
         highlight_id = str(element.get("id", ""))
         if not highlight_id:
             parent_with_id = element.find_parent(id=True)
-            highlight_id = str(parent_with_id.get("id", "")) if parent_with_id else ""
+            highlight_id = (
+                str(parent_with_id.get("id", "")) if isinstance(parent_with_id, Tag) else ""
+            )
 
         text_element = element.select_one(".a-size-base-plus") or element
         text = html.unescape(text_element.get_text(strip=True))
 
-        classes = element.get("class", [])
+        classes = element.get("class")
         if not isinstance(classes, list):
             classes = []
         color = extract_color_from_classes(classes)
@@ -122,7 +127,9 @@ def parse_annotations_html(html_content: str) -> list[Highlight]:
         )
 
         note_element = element.find_next_sibling("div", class_="kp-notebook-note")
-        note_span = note_element.select_one(".a-size-base-plus") if note_element else None
+        note_span = (
+            note_element.select_one(".a-size-base-plus") if isinstance(note_element, Tag) else None
+        )
         note = html.unescape(note_span.get_text(strip=True)) if note_span else None
 
         highlights.append(Highlight(highlight_id, text, color, page, location, note))
