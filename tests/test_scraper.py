@@ -70,6 +70,25 @@ def test_interactive_mode_rejects_headless_browser(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_book_load_failure_stops_the_export(tmp_path: Path) -> None:
+    class FakeLink:
+        async def click(self) -> None:
+            pass
+
+    class FakePage:
+        def locator(self, _: str) -> FakeLink:
+            return FakeLink()
+
+        async def wait_for_selector(self, _: str, **__: object) -> None:
+            raise TimeoutError("annotations did not load")
+
+    scraper = KindleScraper(auth_state_path=tmp_path / "session.json")
+
+    with pytest.raises(RuntimeError, match="Failed to load annotations"):
+        await scraper.scrape_book_highlights(FakePage(), "B00X57B4JG")  # type: ignore[arg-type]
+
+
 def test_atomic_export_is_private_and_valid_json(tmp_path: Path) -> None:
     output = tmp_path / "highlights.json"
     scraper = KindleScraper(auth_state_path=tmp_path / "session.json")

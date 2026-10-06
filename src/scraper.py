@@ -39,6 +39,7 @@ class ExportData(TypedDict):
 
 ASIN_PATTERN = re.compile(r"^[A-Z0-9]{10}$")
 AUTH_MODES = {"auto", "session", "interactive", "credentials"}
+NOTEBOOK_URL = "https://read.amazon.com/notebook?ref_=kcr_notebook_lib&language=en-US"
 
 
 def iso_timestamp() -> str:
@@ -103,7 +104,7 @@ class KindleScraper:
     async def authenticate(self, page: Page) -> bool:
         """Reuse a saved session, then authenticate using the selected fallback."""
         print("Navigating to Amazon Kindle notebook...")
-        await page.goto("https://read.amazon.com/kp/notebook?ref_=k4w_ms_notebook")
+        await page.goto(NOTEBOOK_URL)
 
         if is_amazon_error_page(await page.title()):
             print(
@@ -240,27 +241,27 @@ class KindleScraper:
             try:
                 book["asin"] = validate_asin(book["asin"])
             except (KeyError, ValueError) as exc:
-                print(f"Warning: Skipping malformed library entry: {exc}")
-                continue
+                raise RuntimeError("Kindle library contains a malformed book entry") from exc
             books.append(book)
+
+        if not books:
+            raise RuntimeError("Kindle library is empty; refusing an incomplete export")
 
         print(f"Total books found: {len(books)}")
         return books
 
-    async def scrape_book_highlights(self, page: Page, asin: str) -> Book | None:
+    async def scrape_book_highlights(self, page: Page, asin: str) -> Book:
         """Scrape highlights for a specific book."""
         asin = validate_asin(asin)
         print(f"Scraping highlights for book {asin}...")
 
         book_link = page.locator(f"#kp-notebook-library #{asin} a")
         await book_link.click()
-        await page.wait_for_timeout(2000)
 
         try:
             await page.wait_for_selector("#kp-notebook-annotations", timeout=10000)
-        except Exception as e:  # pragma: no cover - network timing
-            print(f"Failed to load annotations for book {asin}: {e}")
-            return None
+        except Exception as exc:  # pragma: no cover - network timing
+            raise RuntimeError(f"Failed to load annotations for book {asin}") from exc
 
         metadata_text = await page.locator(".kp-notebook-metadata").all_text_contents()
         expected_count = next(
@@ -296,20 +297,23 @@ class KindleScraper:
 
         truncation_banner = page.locator("#kp-notebook-hidden-annotations-summary")
         if await truncation_banner.count() > 0:
-            print(f"Warning: Highlights for book {asin} may be truncated due to export limits")
+            raise RuntimeError(f"Highlights for book {asin} are truncated by Amazon")
 
         if expected_count is not None and current_count < expected_count:
-            print(
-                f"Warning: Amazon reports {expected_count} highlights for {asin}, "
-                f"but only {current_count} were available to export"
+            raise RuntimeError(
+                f"Incomplete highlights for book {asin}: expected {expected_count}, "
+                f"received {current_count}"
             )
 
         page_html = await page.content()
         book = parse_book_from_annotations_page(page_html)
 
-        if book:
-            print(f"Found {len(book.highlights)} highlights for '{book.title}'")
+        if book is None:
+            raise RuntimeError(f"Could not parse annotations for book {asin}")
+        if expected_count is not None and len(book.highlights) < expected_count:
+            raise RuntimeError(f"Parsed fewer highlights than Amazon reports for book {asin}")
 
+        print(f"Found {len(book.highlights)} highlights for '{book.title}'")
         return book
 
     async def scrape_all_books(
@@ -345,9 +349,8 @@ class KindleScraper:
 
                 if specific_asin:
                     book = await self.scrape_book_highlights(page, specific_asin)
-                    if book:
-                        books.append(book)
-                        self.save_book_progressively(book, output_path)
+                    books.append(book)
+                    self.save_book_progressively(book, output_path)
                 else:
                     existing_data = (
                         self.load_existing_data(output_path)
@@ -369,12 +372,11 @@ class KindleScraper:
                             continue
 
                         book = await self.scrape_book_highlights(page, asin)
-                        if book:
-                            books.append(book)
-                            self.save_book_progressively(book, output_path)
+                        books.append(book)
+                        self.save_book_progressively(book, output_path)
 
-                            processed_count += 1
-                            print(f"Progress: {processed_count}/{total_books} books processed")
+                        processed_count += 1
+                        print(f"Progress: {processed_count}/{total_books} books processed")
 
                 return books
 
