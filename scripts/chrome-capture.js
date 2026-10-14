@@ -13,6 +13,7 @@ let readBook = async (tab) => tab.playwright.evaluate(() => {
   return {
     title: root.querySelector('h3').textContent,
     asin: root.querySelector('a.kp-notebook-printable').href.split('/dp/')[1].split('?')[0],
+    last_accessed: root.querySelector('#kp-notebook-annotated-date').textContent,
     expected: Number(meta.match(/([\d,]+)\s*Highlights?/i)[1].replaceAll(',', '')),
     highlights: Array.from(root.querySelectorAll('.kp-notebook-highlight')).map(e => {
       const row = e.parentElement.parentElement.parentElement;
@@ -42,6 +43,8 @@ let captureBook = async (tab, info, capture) => {
   capture.books = capture.books.filter(b => b.asin !== info.asin);
   capture.books.push({...info,highlights:result.highlights});
   capture.counts[info.asin] = result.expected;
+  capture.access_dates ||= {};
+  capture.access_dates[info.asin] = result.last_accessed;
   return {asin:info.asin,highlights:result.highlights.length};
 };
 

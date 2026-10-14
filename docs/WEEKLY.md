@@ -54,6 +54,22 @@ do not hard-code browser IDs. Do not read/copy cookies or Chrome profile files.
    coverage, backs up the baseline by content hash, atomically saves the result,
    and updates `data/refresh-state.json`. It preserves absent books and ignores
    timestamps/object ordering when deciding whether content changed.
+   The Chrome helper also captures each selected book's visible Last accessed
+   date in `capture.access_dates`, separately from the public highlights schema.
+   Before merging, retain a private `data/prior-week.json` copy of the baseline.
+   After **every successful merge**, including unchanged content, run:
+   ```sh
+   uv run python src/personal_reading.py --baseline data/prior-week.json
+   ```
+   This saves the complete export, capture and dated evidence packet privately at
+   `~/skn/shane-neeley/personal-kb/reading/`, with immutable dated snapshots and
+   a current seven-day packet. Use the actual local capture date (an explicit
+   `--as-of YYYY-MM-DD` is only for historical replay). Preserve all history.
+   Missing dates mean no dated reading claim; archive the full export anyway.
+   If saving the private archive fails, report it instead of claiming the weekly
+   workflow complete. Do not publish the personal packet or personal VOICE.md.
+   `~/VOICE.md` points to this packet for the optional `shane-personal-voice` skill.
+   Consider only relevant fresh evidence; do not rewrite stable taste weekly.
 7. Validate and publish only when live content differs:
    ```sh
    uv run pytest -q
