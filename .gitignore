@@ -45,6 +45,8 @@ playwright-report/
 data/*.json
 data/highlights.json
 data/test.json
+data/backups/
+data/*.txt
 
 # Debug files
 debug_page.html

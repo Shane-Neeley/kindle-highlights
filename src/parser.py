@@ -141,7 +141,7 @@ def parse_book_from_annotations_page(html_content: str) -> Book | None:
     """Parse the book info and annotations from a loaded book page."""
     soup = BeautifulSoup(html_content, "html.parser")
 
-    book_title_element = soup.select_one(".kp-notebook-metadata")
+    book_title_element = soup.select_one("h3.kp-notebook-metadata")
     author_elements = soup.select(".kp-notebook-metadata")
 
     if not book_title_element or len(author_elements) < 3:
@@ -150,11 +150,17 @@ def parse_book_from_annotations_page(html_content: str) -> Book | None:
     book_title = html.unescape(book_title_element.get_text(strip=True))
     author = html.unescape(author_elements[2].get_text(strip=True))
 
-    cover_element = soup.select_one(".kp-notebook-cover-image-border")
+    cover_element = soup.select_one("#annotation-scroller .kp-notebook-cover-image-border")
+    if cover_element is None:
+        cover_element = soup.select_one(".kp-notebook-cover-image-border")
     cover_url = str(cover_element.get("src", "")) if cover_element else ""
 
-    asin_input = soup.select_one("#kp-notebook-annotations-asin")
+    asin_input = soup.select_one("#kp-notebook-annotations-asin, #kp-notebook-asin")
     asin = str(asin_input.get("value", "")) if asin_input else ""
+    if not asin:
+        product_link = soup.select_one('a.kp-notebook-printable[href*="/dp/"]')
+        if product_link:
+            asin = str(product_link.get("href", "")).split("/dp/")[-1].split("?")[0]
 
     highlights = parse_annotations_html(html_content)
 

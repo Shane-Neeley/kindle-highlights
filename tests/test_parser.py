@@ -18,6 +18,29 @@ def sample_html() -> str:
     return html_path.read_text(encoding="utf-8")
 
 
+def test_current_markup_uses_heading_product_link_and_annotation_cover() -> None:
+    html = """
+    <img class="kp-notebook-cover-image-border" src="wrong-library-cover.jpg">
+    <div id="annotation-scroller">
+      <p class="kp-notebook-metadata">Your Kindle Notes For:</p>
+      <h3 class="kp-notebook-metadata">Example Book</h3>
+      <p class="kp-notebook-metadata">Example Author</p>
+      <input id="kp-notebook-asin">
+      <a class="kp-notebook-printable" href="https://amazon.com/dp/B000000001">
+        <img class="kp-notebook-cover-image-border" src="correct-cover.jpg">
+      </a>
+      <div id="kp-notebook-annotations"></div>
+    </div>"""
+    book = parse_book_from_annotations_page(html)
+    assert book is not None
+    assert (book.asin, book.title, book.author, book.cover_url) == (
+        "B000000001",
+        "Example Book",
+        "Example Author",
+        "correct-cover.jpg",
+    )
+
+
 def test_extract_color_from_classes() -> None:
     """Test color extraction from CSS classes."""
     assert extract_color_from_classes(["kp-notebook-highlight-yellow"]) == "yellow"

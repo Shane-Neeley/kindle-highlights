@@ -2,6 +2,12 @@
 
 Export all your Kindle highlights from Amazon's notebook page to structured JSON.
 
+For the incremental weekly Chrome refresh, private checkpoints/backups and
+highlights-only Firebase publishing, see [Weekly workflow](docs/WEEKLY.md).
+The notebook URL is now `https://read.amazon.com/notebook`; the old `/kp/notebook`
+route is retired. The signed-in Chrome workflow currently works while the separate
+Playwright browser receives Amazon's generic pre-login error.
+
 ## Features
 
 - ✨ Scrape all highlights from your entire Kindle library

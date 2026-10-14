@@ -103,7 +103,7 @@ class KindleScraper:
     async def authenticate(self, page: Page) -> bool:
         """Reuse a saved session, then authenticate using the selected fallback."""
         print("Navigating to Amazon Kindle notebook...")
-        await page.goto("https://read.amazon.com/kp/notebook?ref_=k4w_ms_notebook")
+        await page.goto("https://read.amazon.com/notebook")
 
         if is_amazon_error_page(await page.title()):
             print(
@@ -306,6 +306,11 @@ class KindleScraper:
 
         page_html = await page.content()
         book = parse_book_from_annotations_page(page_html)
+
+        if not book or book.asin != asin:
+            raise RuntimeError(f"Annotation page did not match requested ASIN {asin}")
+        if expected_count is not None and len(book.highlights) != expected_count:
+            raise RuntimeError(f"Incomplete annotations for {asin}; keep the prior export")
 
         if book:
             print(f"Found {len(book.highlights)} highlights for '{book.title}'")
