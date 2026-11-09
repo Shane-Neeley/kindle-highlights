@@ -68,8 +68,26 @@ do not hard-code browser IDs. Do not read/copy cookies or Chrome profile files.
    Missing dates mean no dated reading claim; archive the full export anyway.
    If saving the private archive fails, report it instead of claiming the weekly
    workflow complete. Do not publish the personal packet or personal VOICE.md.
-   `~/VOICE.md` points to this packet for the optional `shane-personal-voice` skill.
-   Consider only relevant fresh evidence; do not rewrite stable taste weekly.
+   `~/VOICE.md` points to this packet for the shared `voice` skill at
+   `~/setup-mac/.agents/skills/voice/SKILL.md`.
+   For LLM-assisted writing or explanations, the current packet can optionally
+   supply fresh questions and connections alongside the user's own writing and
+   voice guide. Keep authors' quotations separate from the user's prose and
+   beliefs; retain dates, attribution and expiry. Consider only relevant fresh
+   evidence; do not rewrite stable taste weekly. This existing refresh supplies
+   context without a separate writing schedule.
+   After the private archive succeeds, follow
+   `~/skn/shane-neeley/personal-kb/reading/maintenance.md` and run that repository's
+   `python3 scripts/reading.py delta`. Review new or changed passages in the ranked
+   queue, maintain the private book interpretations, durable idea notes and
+   personality task routes, then render and validate the reviewed records. Read
+   changed evidence before acknowledging it; keep incomplete reviews queued.
+   Reconcile edited or removed cited passages even when highlight counts stay the
+   same. Preserve immutable snapshots, competing ideas and authorship. Highlights
+   do not automatically establish beliefs or change stable voice preferences.
+   This maintenance belongs to the existing Sunday run, including unchanged public
+   weeks. A successful publication does not excuse a failed private save/review.
+   Keep personal synthesis and test traces out of this public repository and site.
 7. Validate and publish only when live content differs:
    ```sh
    uv run pytest -q
